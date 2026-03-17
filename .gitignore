@@ -1,0 +1,10 @@
+.archive
+.vscode
+commands/command.js
+images
+node_modules
+config.json
+ENV.json
+package-lock.json
+start_bot.bat
+start.sh
