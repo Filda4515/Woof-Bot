@@ -1,4 +1,4 @@
-const ENV = require("./ENV.json");
+require("dotenv").config();
 const { Client, Collection, Events, GatewayIntentBits, ActivityType, MessageFlags } = require("discord.js");
 const config = require("./config.json");
 const fs = require("fs");
@@ -16,7 +16,7 @@ client.on(Events.ClientReady, async () => {
 const mongoose = require("mongoose");
 mongoose.set("strictQuery", true);
 mongoose
-    .connect(ENV.MONGODB_URI)
+    .connect(process.env.MONGODB_URI)
     .then(() => {
         console.log("Connected to the database!");
     })
@@ -89,4 +89,4 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 });
 
-client.login(ENV.token);
+client.login(process.env.TOKEN);
