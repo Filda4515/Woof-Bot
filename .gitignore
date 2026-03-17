@@ -4,6 +4,7 @@ commands/command.js
 images
 node_modules
 config.json
+deploy-commands.js
 ENV.json
 package-lock.json
 start_bot.bat
