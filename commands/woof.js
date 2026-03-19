@@ -21,10 +21,9 @@ module.exports = {
             let userProfile = await UserProfile.findOne({ discordId: interaction.user.id });
             if (!userProfile) {
                 userProfile = new UserProfile({ discordId: interaction.user.id });
-                await userProfile.save();
             }
 
-            if (state === true) {
+            if (state) {
                 userProfile.woofToggle = true;
                 message = "I will from now on start woofing at you! You made me very happy!!!";
             } else {

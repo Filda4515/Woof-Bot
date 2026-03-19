@@ -21,136 +21,138 @@ const RANK_ROLES = [
 ];
 const MANAGED_ROLES = [...RANK_ROLES, config.roles.guildMember, config.roles.guests, config.roles.goatGuests];
 
+async function fetchWynnAPI(guildPrefix) {
+    const response = await fetch(`https://api.wynncraft.com/v3/guild/prefix/${guildPrefix}?identifier=uuid`);
+    if (!response.ok) throw new Error("Failed to fetch data from Wynncraft API.");
+    
+    const guildData = await response.json();
+    const playerRankByUuid = {};
+    
+    for (const [rank, players] of Object.entries(guildData.members)) {
+        if (rank === "total") continue;
+        for (const [uuid, data] of Object.entries(players)) {
+            playerRankByUuid[uuid.toLowerCase()] = { rank: rank, username: data.username };
+        }
+    }
+    return playerRankByUuid;
+}
+
+async function fetchDatabaseUsers() {
+    const dbUsers = await LinkedUser.find({});
+    const dbUserMap = {};
+    for (const user of dbUsers) {
+        dbUserMap[user.discordId] = { uuid: user.uuid.toLowerCase(), ign: user.ign };
+    }
+    return dbUserMap;
+}
+
+function analyzeDiscrepancies(members, playerRankByUuid, dbUserMap) {
+    const discrepancies = [];
+    const actionsToTake = [];
+    const dbUpdates = [];
+    const dbDeletes = [];
+
+    members.forEach((member) => {
+        if (member.user.bot) return;
+
+        let uuid = null;
+        let ign = null;
+        let apiRank = undefined;
+        let inDatabase = !!dbUserMap[member.id];
+
+        if (inDatabase) {
+            uuid = dbUserMap[member.id].uuid;
+            ign = dbUserMap[member.id].ign;
+        }
+
+        if (uuid && playerRankByUuid[uuid]) {
+            apiRank = playerRankByUuid[uuid].rank;
+            if (inDatabase && ign !== playerRankByUuid[uuid].username) {
+                dbUpdates.push({ discordId: member.id, uuid: uuid, ign: playerRankByUuid[uuid].username });
+            }
+        } else if (ign && inDatabase) {
+            dbDeletes.push({ discordId: member.id, ign: ign });
+        }
+
+        const expectedRoles = [];
+        let rolesToRemove = [];
+
+        if (apiRank) {
+            const rankRole = RANK_TO_ROLE[apiRank];
+            expectedRoles.push(config.roles.guildMember, rankRole);
+
+            rolesToRemove = member.roles.cache
+                .filter(r => r.id === config.roles.guests || r.id === config.roles.goatGuests || (RANK_ROLES.includes(r.id) && r.id !== rankRole))
+                .map(r => r.id);
+        } else {
+            expectedRoles.push(config.roles.guests);
+
+            rolesToRemove = member.roles.cache
+                .filter(r => r.id === config.roles.guildMember || RANK_ROLES.includes(r.id))
+                .map(r => r.id);
+        }
+
+        const rolesToAdd = expectedRoles.filter((roleId) => !member.roles.cache.has(roleId));
+
+        if (rolesToAdd.length > 0 || rolesToRemove.length > 0) {
+            const currentManagedRoles = member.roles.cache.filter((r) => MANAGED_ROLES.includes(r.id));
+            const currentRolesDisplay = currentManagedRoles.size > 0 ? currentManagedRoles.map((r) => `<@&${r.id}>`).join(", ") : "No relevant roles.";
+            const displayName = ign ? `**${ign}**` : `*Unlinked*`;
+            const expectedDisplay = expectedRoles.map((id) => `<@&${id}>`).join(", ");
+            
+            discrepancies.push(`👤 ${displayName} (<@${member.id}>)\nExpected: ${expectedDisplay}\nActual: ${currentRolesDisplay}\n`);
+            actionsToTake.push({ member, rolesToAdd, rolesToRemove });
+        }
+    });
+
+    return { discrepancies, actionsToTake, dbUpdates, dbDeletes };
+}
+
+async function syncDatabase(dbUpdates, dbDeletes) {
+    if (dbUpdates.length > 0) {
+        for (const update of dbUpdates) {
+            console.log(`[DB] Updating changed IGN: ${update.ign} (${update.discordId})`);
+            await LinkedUser.updateOne(
+                { discordId: update.discordId },
+                { ign: update.ign, uuid: update.uuid }
+            ).exec();
+        }
+    }
+    if (dbDeletes.length > 0) {
+        const deleteIds = dbDeletes.map((d) => d.discordId);
+        dbDeletes.forEach((d) => console.log(`[DB] Removing user (left guild): ${d.ign} (${d.discordId})`));
+        await LinkedUser.deleteMany({ discordId: { $in: deleteIds } }).exec();
+    }
+}
+
 module.exports = {
     async execute(interaction) {
         try {
-            const response = await fetch("https://api.wynncraft.com/v3/guild/prefix/Sort?identifier=uuid");
-            if (!response.ok) {
-                return interaction.editReply("Failed to fetch data from Wynncraft API.");
-            }
-            const guildData = await response.json();
-
-            const playerRankByUuid = {};
-            for (const [rank, players] of Object.entries(guildData.members)) {
-                if (rank === "total") continue;
-                for (const [_uuid, _data] of Object.entries(players)) {
-                    const uuid = _uuid.toLowerCase();
-                    playerRankByUuid[uuid] = { rank: rank, username: _data.username };
-                }
-            }
-
             const targetGuild = await interaction.client.guilds.fetch(config.smolGuildId);
             if (!targetGuild) {
                 return interaction.editReply("Could not find Discord server.");
             }
 
-            const dbUsers = await LinkedUser.find({});
-            const dbUserMap = {};
-            for (const user of dbUsers) {
-                dbUserMap[user.discordId] = { uuid: user.uuid.toLowerCase(), ign: user.ign };
-            }
-
+            const guildPrefix = "Sort"
+            const playerRankByUuid = await fetchWynnAPI(guildPrefix);
+            const dbUserMap = await fetchDatabaseUsers();
             const members = await targetGuild.members.fetch();
-            const discrepancies = [];
-            const actionsToTake = [];
 
-            const dbUpserts = [];
-            const dbDeletes = [];
+            const analysis = analyzeDiscrepancies(members, playerRankByUuid, dbUserMap);
 
-            members.forEach((member) => {
-                if (member.user.bot) return;
-
-                let uuid = null;
-                let ign = null;
-                let apiRank = undefined;
-                let inDatabase = false;
-
-                if (dbUserMap[member.id]) {
-                    uuid = dbUserMap[member.id].uuid;
-                    ign = dbUserMap[member.id].ign;
-                    inDatabase = true;
-                }
-
-                if (uuid && playerRankByUuid[uuid]) {
-                    apiRank = playerRankByUuid[uuid].rank;
-                    if (inDatabase && ign !== playerRankByUuid[uuid].username) {
-                        dbUpserts.push({ discordId: member.id, uuid: uuid, ign: playerRankByUuid[uuid].username });
-                    }
-                } else if (ign) {
-                    if (inDatabase) {
-                        dbDeletes.push({ discordId: member.id, ign: ign });
-                    }
-                }
-
-                const expectedRoles = [];
-                const rolesToRemove = [];
-
-                if (apiRank) {
-                    const rankRole = RANK_TO_ROLE[apiRank];
-                    expectedRoles.push(config.roles.guildMember, rankRole);
-                    if (member.roles.cache.has(config.roles.guests)) rolesToRemove.push(config.roles.guests);
-                    if (member.roles.cache.has(config.roles.goatGuests)) rolesToRemove.push(config.roles.goatGuests);
-                    RANK_ROLES.forEach((rank) => {
-                        if (rank !== rankRole && member.roles.cache.has(rank)) {
-                            rolesToRemove.push(rank);
-                        }
-                    });
-                } else {
-                    expectedRoles.push(config.roles.guests);
-                    if (member.roles.cache.has(config.roles.guildMember)) rolesToRemove.push(config.roles.guildMember);
-
-                    RANK_ROLES.forEach((rank) => {
-                        if (member.roles.cache.has(rank)) {
-                            rolesToRemove.push(rank);
-                        }
-                    });
-                }
-                const rolesToAdd = expectedRoles.filter((roleId) => !member.roles.cache.has(roleId));
-
-                if (rolesToAdd.length > 0 || rolesToRemove.length > 0) {
-                    const currentManagedRoles = member.roles.cache.filter((r) => MANAGED_ROLES.includes(r.id));
-                    const currentRolesDisplay =
-                        currentManagedRoles.size > 0 ? currentManagedRoles.map((r) => `<@&${r.id}>`).join(", ") : "No relevant roles.";
-                    const displayName = ign ? `**${ign}**` : `*Unlinked*`;
-                    const expectedDisplay = expectedRoles.map((id) => `<@&${id}>`).join(", ");
-                    discrepancies.push(
-                        `👤 ${displayName} (<@${member.id}>)\nExpected: ${expectedDisplay}\nActual: ${currentRolesDisplay}\n`,
-                    );
-                    actionsToTake.push({
-                        member: member,
-                        rolesToAdd: rolesToAdd,
-                        rolesToRemove: rolesToRemove,
-                    });
-                }
-            });
-
-            if (dbUpserts.length > 0) {
-                for (const update of dbUpserts) {
-                    console.log(`[DB] Upserting user: ${update.ign} (${update.discordId})`);
-                    LinkedUser.findOneAndUpdate(
-                        { discordId: update.discordId },
-                        { ign: update.ign, uuid: update.uuid },
-                        { upsert: true },
-                    ).exec();
-                }
-            }
-            if (dbDeletes.length > 0) {
-                const deleteIds = dbDeletes.map((d) => d.discordId);
-                dbDeletes.forEach((d) => console.log(`[DB] Removing user (left guild): ${d.ign} (${d.discordId})`));
-                LinkedUser.deleteMany({ discordId: { $in: deleteIds } }).exec();
-            }
+            await syncDatabase(analysis.dbUpdates, analysis.dbDeletes);
 
             const embed = new EmbedBuilder()
-                .setTitle(`Role sync check: ${guildData.name}`)
-                .setColor(discrepancies.length === 0 ? config.colors.success : config.colors.error)
+                .setTitle(`Role sync check: ${guildPrefix}`)
+                .setColor(analysis.discrepancies.length === 0 ? config.colors.success : config.colors.error)
                 .setTimestamp();
 
-            if (discrepancies.length === 0) {
+            if (analysis.discrepancies.length === 0) {
                 embed.setDescription(`✅ All Discord roles are synced with the Wynncraft API.`);
                 return await interaction.editReply({ embeds: [embed] });
             }
 
-            let description = `Found **${discrepancies.length}** role mismatches:\n\n` + discrepancies.join("\n");
+            let description = `Found **${analysis.discrepancies.length}** role mismatches:\n\n` + analysis.discrepancies.join("\n");
             if (description.length > 4096) {
                 description = description.substring(0, 4090) + "...";
             }
@@ -174,7 +176,7 @@ module.exports = {
                     let successCount = 0;
                     let failCount = 0;
 
-                    for (const action of actionsToTake) {
+                    for (const action of analysis.actionsToTake) {
                         try {
                             if (action.rolesToRemove.length > 0) {
                                 await action.member.roles.remove(action.rolesToRemove);

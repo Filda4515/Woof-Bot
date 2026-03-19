@@ -8,4 +8,3 @@ config.json
 deploy-commands.js
 package-lock.json
 start_bot.bat
-start.sh

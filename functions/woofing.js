@@ -22,6 +22,157 @@ function getGaussianTarget() {
     return Math.round(target * 100) / 100;
 }
 
+async function woofReply(message, userProfile) {
+    const reply = message.content.toLowerCase();
+    let replied = false;
+
+    switch (userProfile.latestWoofType) {
+        case "secret":
+            if (reply.includes("secret woof")) {
+                message.reply("double secret woof!");
+                replied = true;
+            } else if (reply.includes("woof")) {
+                message.reply("No more secret woof?");
+                replied = true;
+            }
+            break;
+        case "meow":
+            if (reply.includes("meow")) {
+                message.reply("meow... :(");
+                replied = true;
+            } else if (reply.includes("woof")) {
+                message.reply("woof!!! :)");
+                replied = true;
+            }
+            break;
+        case "normal":
+            if (reply.includes("woof")) {
+                message.reply("double woof!");
+                replied = true;
+            }
+            break;
+        case "rare":
+            if (reply.includes("rare woof")) {
+                message.reply("double rare woof!");
+                replied = true;
+            } else if (reply.includes("woof")) {
+                message.reply("woof woof!");
+                replied = true;
+            }
+            break;
+        case "legendary":
+            if (reply.includes("legendary woof")) {
+                message.reply("!! Double Legendary Woof !!");
+                replied = true;
+            } else if (reply.includes("woof")) {
+                message.reply("woof woof!");
+                replied = true;
+            }
+            break;
+        case "mythic":
+            if (reply.includes("mythical woof")) {
+                message.reply("!!!!! DOUBLE MYTHICAL WOOF !!!!!");
+                replied = true;
+            } else if (reply.includes("woof")) {
+                message.reply("woof woof!");
+                replied = true;
+            }
+            break;
+        default:
+            break;
+    }
+
+    if (replied) {
+        userProfile.latestWoofId = "";
+        userProfile.latestWoofType = "";
+        await userProfile.save();
+    }
+
+    return replied;
+}
+
+async function woofMessage(message, userProfile) {
+    let sentMessage;
+    let woofType;
+    let roll;
+
+    if (userProfile.secret === true) {
+        userProfile.secret = false;
+        sentMessage = await message.reply("secret woof!");
+        woofType = "secret";
+    } else if (userProfile.meow === true) {
+        userProfile.meow = false;
+        sentMessage = await message.reply("M... meow?");
+        woofType = "meow";
+    } else {
+        const rates = config.woofSettings.dropRates;
+        const normalChance = 100 - (rates.mythic + rates.legendary + rates.rare);
+        const woofTable = [
+            { chance: rates.mythic, type: "mythic", text: "!! MYTHICAL WOOF !!" },
+            { chance: rates.legendary, type: "legendary", text: "! Legendary Woof !" },
+            { chance: rates.rare, type: "rare", text: "rare woof" },
+            { chance: normalChance, type: "normal", text: "woof" },
+        ];
+
+        roll = Math.random() * 100;
+        let cumulativeWeight = 0;
+        let selectedWoof = woofTable[woofTable.length - 1];
+
+        for (const woofDict of woofTable) {
+            cumulativeWeight += woofDict.chance;
+            if (roll < cumulativeWeight) {
+                selectedWoof = woofDict;
+                break;
+            }
+        }
+
+        sentMessage = await message.reply(selectedWoof.text);
+        woofType = selectedWoof.type;
+    }
+
+    const newTarget = getGaussianTarget();
+    console.log(
+        `Woofed at ${message.author.username} with woof rarity ${woofType} (${roll !== undefined ? roll.toFixed(2) : "N/A"})! New goal: ${newTarget}.`,
+    );
+
+    userProfile.latestWoofId = sentMessage.id;
+    userProfile.latestWoofType = woofType;
+    userProfile.chance = 0;
+    userProfile.woofTarget = newTarget;
+    userProfile.woofStats.total += 1;
+    userProfile.woofStats[woofType] += 1;
+    await userProfile.save();
+}
+
+async function gainWoofPoints(message, userProfile) {
+    const now = Date.now();
+    const timePassed = Math.min(now - userProfile.lastMessageTime, config.woofSettings.maxTimePauseMs);
+    const timeRatio = timePassed / config.woofSettings.maxTimePauseMs;
+    const timeMultiplier = timeRatio * config.woofSettings.timeMultiplier;
+
+    const characterRatio = Math.min(message.content.length, config.woofSettings.maxCharCount) / config.woofSettings.maxCharCount;
+    const characterPoints = characterRatio * config.woofSettings.maxCharacterPoints;
+
+    const customEmojiRegex = /<a?:[a-zA-Z0-9_]+:\d+>/g;
+    const unicodeEmojiRegex = /\p{Extended_Pictographic}/gu;
+    const hasEmoji = customEmojiRegex.test(message.content) || unicodeEmojiRegex.test(message.content);
+    const emojiPoints = hasEmoji ? config.woofSettings.emojiPoints : 0;
+
+    const attachmentPoints = message.attachments.size > 0 ? config.woofSettings.attachmentPoints : 0;
+
+    let totalPoints = Math.min((characterPoints + emojiPoints + attachmentPoints) * timeMultiplier, config.woofSettings.maxPointsGain);
+    totalPoints = Math.round(totalPoints * 100) / 100;
+    let currentChance = userProfile.chance + totalPoints;
+    if (currentChance > 100) currentChance = 100;
+
+    console.log(
+        `No woof for ${message.author.username}. ((${characterPoints.toFixed(2)} + ${emojiPoints.toFixed(2)} + ${attachmentPoints.toFixed(2)}) * ${timeMultiplier.toFixed(2)} => +${totalPoints.toFixed(2)} points) Points increased to ${currentChance.toFixed(2)}, waiting for ${userProfile.woofTarget.toFixed(2)}.`,
+    );
+    userProfile.chance = currentChance;
+    userProfile.lastMessageTime = now;
+    await userProfile.save();
+}
+
 async function handleWoofing(message) {
     let userProfile = await UserProfile.findOne({ discordId: message.author.id });
     if (!userProfile) {
@@ -31,149 +182,14 @@ async function handleWoofing(message) {
     if (!userProfile.woofToggle) return;
 
     if (message.reference && message.reference.messageId === userProfile.latestWoofId) {
-        const latestWoofType = userProfile.latestWoofType;
-        let replied = false;
-
-        switch (latestWoofType) {
-            case "secret":
-                if (message.content.toLowerCase().includes("secret woof")) {
-                    message.reply("double secret woof!");
-                    replied = true;
-                } else if (message.content.toLowerCase().includes("woof")) {
-                    message.reply("No more secret woof?");
-                    replied = true;
-                }
-                break;
-            case "meow":
-                if (message.content.toLowerCase().includes("meow")) {
-                    message.reply("meow... :(");
-                    replied = true;
-                } else if (message.content.toLowerCase().includes("woof")) {
-                    message.reply("woof!!! :)");
-                    replied = true;
-                }
-                break;
-            case "normal":
-                if (message.content.toLowerCase().includes("woof")) {
-                    message.reply("double woof!");
-                    replied = true;
-                }
-                break;
-            case "rare":
-                if (message.content.toLowerCase().includes("rare woof")) {
-                    message.reply("double rare woof!");
-                    replied = true;
-                } else if (message.content.toLowerCase().includes("woof")) {
-                    message.reply("woof woof!");
-                    replied = true;
-                }
-                break;
-            case "legendary":
-                if (message.content.toLowerCase().includes("legendary woof")) {
-                    message.reply("!! Double Legendary Woof !!");
-                    replied = true;
-                } else if (message.content.toLowerCase().includes("woof")) {
-                    message.reply("woof woof!");
-                    replied = true;
-                }
-                break;
-            case "mythic":
-                if (message.content.toLowerCase().includes("mythical woof")) {
-                    message.reply("!!!!! DOUBLE MYTHICAL WOOF !!!!!");
-                    replied = true;
-                } else if (message.content.toLowerCase().includes("woof")) {
-                    message.reply("woof woof!");
-                    replied = true;
-                }
-                break;
-            default:
-                break;
-        }
-
-        if (replied) {
-            userProfile.latestWoofId = "";
-            userProfile.latestWoofType = "";
-            await userProfile.save();
-        }
-        return;
+        const replied = await woofReply(message, userProfile);
+        if (replied) return;
     }
 
-    let currentChance = userProfile.chance;
-
-    if (currentChance >= userProfile.woofTarget) {
-        let sentMessage;
-
-        if (userProfile.secret === true) {
-            userProfile.secret = false;
-            await userProfile.save();
-            sentMessage = await message.reply("secret woof!");
-            userProfile.latestWoofType = "secret";
-        } else if (userProfile.meow === true) {
-            userProfile.meow = false;
-            await userProfile.save();
-            sentMessage = await message.reply("M... meow?");
-            userProfile.latestWoofType = "meow";
-        } else {
-            const woofTable = [
-                { chance: 1, type: "mythic", text: "!! MYTHICAL WOOF !!" },
-                { chance: 5, type: "legendary", text: "! Legendary Woof !" },
-                { chance: 20, type: "rare", text: "rare woof" },
-                { chance: 74, type: "normal", text: "woof" },
-            ];
-            let roll = Math.random() * 100;
-            let cumulativeWeight = 0;
-            let selectedWoof = woofTable[woofTable.length - 1];
-
-            for (const woofDict of woofTable) {
-                cumulativeWeight += woofDict.chance;
-                if (roll < cumulativeWeight) {
-                    selectedWoof = woofDict;
-                    break;
-                }
-            }
-
-            sentMessage = await message.reply(selectedWoof.text);
-            userProfile.latestWoofType = selectedWoof.type;
-        }
-
-        const newTarget = getGaussianTarget();
-        console.log(`Woofed at ${message.author.username}! New goal: ${newTarget}.`);
-        userProfile.latestWoofId = sentMessage.id;
-        userProfile.chance = 0;
-        userProfile.woofTarget = newTarget;
-
-        userProfile.woofStats.total += 1;
-        if (userProfile.latestWoofType) {
-            userProfile.woofStats[userProfile.latestWoofType] += 1;
-        }
-        await userProfile.save();
+    if (userProfile.chance >= userProfile.woofTarget) {
+        await woofMessage(message, userProfile);
     } else {
-        const now = Date.now();
-        const timePassed = Math.min(now - userProfile.lastMessageTime, config.woofSettings.maxTimePauseMs);
-        const timeRatio = timePassed / config.woofSettings.maxTimePauseMs;
-        const timeMultiplier = timeRatio * config.woofSettings.timeMultiplier;
-
-        const characterRatio = Math.min(message.content.length, config.woofSettings.maxCharCount) / config.woofSettings.maxCharCount;
-        const characterPoints = characterRatio * config.woofSettings.maxCharacterPoints;
-
-        const customEmojiRegex = /<a?:[a-zA-Z0-9_]+:\d+>/g;
-        const unicodeEmojiRegex = /\p{Extended_Pictographic}/gu;
-        const hasEmoji = customEmojiRegex.test(message.content) || unicodeEmojiRegex.test(message.content);
-        const emojiPoints = hasEmoji ? config.woofSettings.emojiPoints : 0;
-
-        const attachmentPoints = message.attachments.size > 0 ? config.woofSettings.attachmentPoints : 0;
-
-        let totalPoints = Math.min((characterPoints + emojiPoints + attachmentPoints) * timeMultiplier, config.woofSettings.maxPointsGain);
-        totalPoints = Math.round(totalPoints * 100) / 100;
-        currentChance += totalPoints;
-        if (currentChance > 100) currentChance = 100;
-
-        console.log(
-            `No woof for ${message.author.username}. ((${characterPoints.toFixed(2)} + ${emojiPoints.toFixed(2)} + ${attachmentPoints.toFixed(2)}) * ${timeMultiplier.toFixed(2)} => +${totalPoints.toFixed(2)} points) Points increased to ${currentChance.toFixed(2)}, waiting for ${userProfile.woofTarget.toFixed(2)}.`,
-        );
-        userProfile.chance = currentChance;
-        userProfile.lastMessageTime = Date.now();
-        await userProfile.save();
+        await gainWoofPoints(message, userProfile);
     }
 }
 
