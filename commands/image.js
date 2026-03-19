@@ -8,6 +8,7 @@ const IMAGE_CAPTION = {
     grrr: "\\*Grrr\\*",
     eep: "\\*goes eep\\*",
     rat: "\\*gets smol rat\\*",
+    puppy: "\\*memories are flooding back\\*",
     bot_wake_up: "Good morning, woof!",
     bot_eep: "Good night, woof!",
 };
@@ -48,6 +49,7 @@ module.exports = {
                     { name: "😠 Grrr", value: "grrr" },
                     { name: "💤 Sleep", value: "eep" },
                     { name: "🐀 Rat", value: "rat" },
+                    { name: "🐶 Puppy", value: "puppy" },
                     { name: "🌞 Good morning!", value: "bot_wake_up" },
                     { name: "🌕 Good night!", value: "bot_eep" },
                 ),
