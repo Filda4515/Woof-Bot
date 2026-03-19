@@ -9,7 +9,7 @@ module.exports = {
             subcommand
                 .setName("toggle")
                 .setDescription("Turn on/off woofing.")
-                .addBooleanOption((option) => option.setName("state").setDescription("woofing state")),
+                .addBooleanOption((option) => option.setName("state").setDescription("woofing state").setRequired(true)),
         ),
     async execute(interaction) {
         let message = "";
