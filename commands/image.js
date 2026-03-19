@@ -47,6 +47,7 @@ module.exports = {
                     { name: "🪑 Sit", value: "sit" },
                     { name: "😠 Grrr", value: "grrr" },
                     { name: "💤 Sleep", value: "eep" },
+                    { name: "🐀 Rat", value: "rat" },
                     { name: "🌞 Good morning!", value: "bot_wake_up" },
                     { name: "🌕 Good night!", value: "bot_eep" },
                 ),
