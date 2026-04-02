@@ -2,21 +2,11 @@ require("dotenv").config();
 const { Client, Collection, GatewayIntentBits } = require("discord.js");
 const fs = require("fs");
 const path = require("node:path");
+const { connectToDatabase } = require("./functions/database.js");
 
 const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildMembers],
 });
-
-const mongoose = require("mongoose");
-mongoose.set("strictQuery", true);
-mongoose
-    .connect(process.env.MONGODB_URI)
-    .then(() => {
-        console.log("Connected to the database!");
-    })
-    .catch((err) => {
-        console.log(err);
-    });
 
 client.commands = new Collection();
 
@@ -43,6 +33,16 @@ for (const file of eventFiles) {
         client.on(event.name, (...args) => event.execute(...args));
     }
 }
+
+(async () => {
+    try {
+        await connectToDatabase();
+        await client.login(process.env.TOKEN);
+    } catch (error) {
+        console.error("Error during startup:", error);
+        process.exit(1);
+    }
+})();
 
 client.login(process.env.TOKEN);
 
