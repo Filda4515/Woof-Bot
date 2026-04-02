@@ -1,25 +1,6 @@
 const UserProfile = require("../schemas/UserProfile.js");
 const config = require("../config.json");
-
-function getGaussianTarget(mean = 50) {
-    let target;
-
-    // stdDev = 20 at mean 50, stdDev = 10 at mean 25/75 with gaussian curve
-    const spreadFactor = -Math.pow(25 - 50, 2) / Math.log(0.5);
-    const stdDev = 20 * Math.exp(-Math.pow(mean - 50, 2) / spreadFactor);
-
-    do {
-        let u1 = 0;
-        let u2 = 0;
-        while (u1 === 0) u1 = Math.random();
-        while (u2 === 0) u2 = Math.random();
-
-        let z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
-        target = z0 * stdDev + mean;
-    } while (target < 1 || target > 100);
-
-    return Math.round(target * 100) / 100;
-}
+const { randomGauss } = require("./randomGauss.js");
 
 async function woofReply(message, userProfile) {
     const reply = message.content.toLowerCase();
@@ -140,7 +121,10 @@ async function woofMessage(message, userProfile) {
     }
 
     const userMean = userProfile.woofTargetMean;
-    const newTarget = getGaussianTarget(userMean);
+    // stdDev = 20 at mean 50, stdDev = 10 at mean 25/75 with gaussian curve
+    const spreadFactor = - 625 / Math.log(0.5);
+    const stdDev = 20 * Math.exp(-Math.pow(mean - 50, 2) / spreadFactor);
+    const newTarget = randomGauss(userMean, stdDev, 1, 100);
     console.log(
         `Woofed at ${message.author.username} with woof rarity ${woofType} (${roll !== undefined ? roll.toFixed(2) : "N/A"})! New goal: ${newTarget} (Mean: ${userMean}).`,
     );
