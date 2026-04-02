@@ -1,9 +1,8 @@
 const UserProfile = require("../schemas/UserProfile.js");
 const config = require("../config.json");
 
-function getGaussianTarget() {
+function getGaussianTarget(mean = 50) {
     let target;
-    let mean = 50;
 
     // stdDev = 20 at mean 50, stdDev = 10 at mean 25/75 with gaussian curve
     const spreadFactor = -Math.pow(25 - 50, 2) / Math.log(0.5);
@@ -26,60 +25,65 @@ async function woofReply(message, userProfile) {
     const reply = message.content.toLowerCase();
     let replied = false;
 
-    switch (userProfile.latestWoofType) {
-        case "secret":
-            if (reply.includes("secret woof")) {
-                message.reply("double secret woof!");
-                replied = true;
-            } else if (reply.includes("woof")) {
-                message.reply("No more secret woof?");
-                replied = true;
-            }
-            break;
-        case "meow":
-            if (reply.includes("meow")) {
-                message.reply("meow... :(");
-                replied = true;
-            } else if (reply.includes("woof")) {
-                message.reply("woof!!! :)");
-                replied = true;
-            }
-            break;
-        case "normal":
-            if (reply.includes("woof")) {
-                message.reply("double woof!");
-                replied = true;
-            }
-            break;
-        case "rare":
-            if (reply.includes("rare woof")) {
-                message.reply("double rare woof!");
-                replied = true;
-            } else if (reply.includes("woof")) {
-                message.reply("woof woof!");
-                replied = true;
-            }
-            break;
-        case "legendary":
-            if (reply.includes("legendary woof")) {
-                message.reply("!! Double Legendary Woof !!");
-                replied = true;
-            } else if (reply.includes("woof")) {
-                message.reply("woof woof!");
-                replied = true;
-            }
-            break;
-        case "mythic":
-            if (reply.includes("mythical woof")) {
-                message.reply("!!!!! DOUBLE MYTHICAL WOOF !!!!!");
-                replied = true;
-            } else if (reply.includes("woof")) {
-                message.reply("woof woof!");
-                replied = true;
-            }
-            break;
-        default:
-            break;
+    try {
+        switch (userProfile.latestWoofType) {
+            case "secret":
+                if (reply.includes("secret woof")) {
+                    message.reply("double secret woof!");
+                    replied = true;
+                } else if (reply.includes("woof")) {
+                    message.reply("No more secret woof?");
+                    replied = true;
+                }
+                break;
+            case "meow":
+                if (reply.includes("meow")) {
+                    message.reply("meow... :(");
+                    replied = true;
+                } else if (reply.includes("woof")) {
+                    message.reply("woof!!! :)");
+                    replied = true;
+                }
+                break;
+            case "normal":
+                if (reply.includes("woof")) {
+                    message.reply("double woof!");
+                    replied = true;
+                }
+                break;
+            case "rare":
+                if (reply.includes("rare woof")) {
+                    message.reply("double rare woof!");
+                    replied = true;
+                } else if (reply.includes("woof")) {
+                    message.reply("woof woof!");
+                    replied = true;
+                }
+                break;
+            case "legendary":
+                if (reply.includes("legendary woof")) {
+                    message.reply("!! Double Legendary Woof !!");
+                    replied = true;
+                } else if (reply.includes("woof")) {
+                    message.reply("woof woof!");
+                    replied = true;
+                }
+                break;
+            case "mythic":
+                if (reply.includes("mythical woof")) {
+                    message.reply("!!!!! DOUBLE MYTHICAL WOOF !!!!!");
+                    replied = true;
+                } else if (reply.includes("woof")) {
+                    message.reply("woof woof!");
+                    replied = true;
+                }
+                break;
+            default:
+                break;
+        }
+    } catch (error) {
+        console.error(`Network error: Could not send woof message to ${message.author.username}:`, error.message);
+        return;
     }
 
     if (replied) {
@@ -96,43 +100,49 @@ async function woofMessage(message, userProfile) {
     let woofType;
     let roll;
 
-    if (userProfile.secret === true) {
-        userProfile.secret = false;
-        sentMessage = await message.reply("secret woof!");
-        woofType = "secret";
-    } else if (userProfile.meow === true) {
-        userProfile.meow = false;
-        sentMessage = await message.reply("M... meow?");
-        woofType = "meow";
-    } else {
-        const rates = config.woofSettings.dropRates;
-        const normalChance = 100 - (rates.mythic + rates.legendary + rates.rare);
-        const woofTable = [
-            { chance: rates.mythic, type: "mythic", text: "!! MYTHICAL WOOF !!" },
-            { chance: rates.legendary, type: "legendary", text: "! Legendary Woof !" },
-            { chance: rates.rare, type: "rare", text: "rare woof" },
-            { chance: normalChance, type: "normal", text: "woof" },
-        ];
+    try {
+        if (userProfile.secret === true) {
+            userProfile.secret = false;
+            sentMessage = await message.reply("secret woof!");
+            woofType = "secret";
+        } else if (userProfile.meow === true) {
+            userProfile.meow = false;
+            sentMessage = await message.reply("M... meow?");
+            woofType = "meow";
+        } else {
+            const rates = config.woofSettings.dropRates;
+            const normalChance = 100 - (rates.mythic + rates.legendary + rates.rare);
+            const woofTable = [
+                { chance: rates.mythic, type: "mythic", text: "!! MYTHICAL WOOF !!" },
+                { chance: rates.legendary, type: "legendary", text: "! Legendary Woof !" },
+                { chance: rates.rare, type: "rare", text: "rare woof" },
+                { chance: normalChance, type: "normal", text: "woof" },
+            ];
 
-        roll = Math.random() * 100;
-        let cumulativeWeight = 0;
-        let selectedWoof = woofTable[woofTable.length - 1];
+            roll = Math.random() * 100;
+            let cumulativeWeight = 0;
+            let selectedWoof = woofTable[woofTable.length - 1];
 
-        for (const woofDict of woofTable) {
-            cumulativeWeight += woofDict.chance;
-            if (roll < cumulativeWeight) {
-                selectedWoof = woofDict;
-                break;
+            for (const woofDict of woofTable) {
+                cumulativeWeight += woofDict.chance;
+                if (roll < cumulativeWeight) {
+                    selectedWoof = woofDict;
+                    break;
+                }
             }
-        }
 
-        sentMessage = await message.reply(selectedWoof.text);
-        woofType = selectedWoof.type;
+            sentMessage = await message.reply(selectedWoof.text);
+            woofType = selectedWoof.type;
+        }
+    } catch (error) {
+        console.error(`Network error: Could not send woof message to ${message.author.username}:`, error.message);
+        return;
     }
 
-    const newTarget = getGaussianTarget();
+    const userMean = userProfile.woofTargetMean;
+    const newTarget = getGaussianTarget(userMean);
     console.log(
-        `Woofed at ${message.author.username} with woof rarity ${woofType} (${roll !== undefined ? roll.toFixed(2) : "N/A"})! New goal: ${newTarget}.`,
+        `Woofed at ${message.author.username} with woof rarity ${woofType} (${roll !== undefined ? roll.toFixed(2) : "N/A"})! New goal: ${newTarget} (Mean: ${userMean}).`,
     );
 
     userProfile.latestWoofId = sentMessage.id;

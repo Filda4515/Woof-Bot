@@ -5,6 +5,7 @@ const userProfileSchema = new Schema({
     woofToggle: { type: Boolean, default: false },
     chance: { type: Number, default: 0.03 },
     woofTarget: { type: Number, default: 50 },
+    woofTargetMean: { type: Number, default: 50 },
     lastMessageTime: { type: Number, default: Date.now },
     latestWoofId: { type: String, default: "" },
     latestWoofType: { type: String, default: "" },
@@ -19,6 +20,7 @@ const userProfileSchema = new Schema({
         secret: { type: Number, default: 0 },
         meow: { type: Number, default: 0 },
     },
+    experimentalFeatures: { type: Boolean, default: false },
 });
 
 module.exports = model("UserProfile", userProfileSchema);
