@@ -1,4 +1,3 @@
-const UserProfile = require("../schemas/UserProfile.js");
 const config = require("../config.json");
 const { randomGauss } = require("./randomGauss.js");
 
@@ -167,12 +166,7 @@ async function gainWoofPoints(message, userProfile) {
     await userProfile.save();
 }
 
-async function handleWoofing(message) {
-    let userProfile = await UserProfile.findOne({ discordId: message.author.id });
-    if (!userProfile) {
-        userProfile = new UserProfile({ discordId: message.author.id });
-    }
-
+async function handleWoofing(message, userProfile) {
     if (!userProfile.woofToggle) return;
 
     if (message.reference && message.reference.messageId === userProfile.latestWoofId) {
