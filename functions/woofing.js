@@ -123,7 +123,7 @@ async function woofMessage(message, userProfile) {
     const userMean = userProfile.woofTargetMean;
     // stdDev = 20 at mean 50, stdDev = 10 at mean 25/75 with gaussian curve
     const spreadFactor = - 625 / Math.log(0.5);
-    const stdDev = 20 * Math.exp(-Math.pow(mean - 50, 2) / spreadFactor);
+    const stdDev = 20 * Math.exp(-Math.pow(userMean - 50, 2) / spreadFactor);
     const newTarget = randomGauss(userMean, stdDev, 1, 100);
     console.log(
         `Woofed at ${message.author.username} with woof rarity ${woofType} (${roll !== undefined ? roll.toFixed(2) : "N/A"})! New goal: ${newTarget} (Mean: ${userMean}).`,
