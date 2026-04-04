@@ -3,76 +3,62 @@ const { randomGauss } = require("./randomGauss.js");
 
 async function woofReply(message, userProfile) {
     const reply = message.content.toLowerCase();
-    let replied = false;
 
     try {
         switch (userProfile.latestWoofType) {
             case "secret":
                 if (reply.includes("secret woof")) {
                     message.reply("double secret woof!");
-                    replied = true;
                 } else if (reply.includes("woof")) {
                     message.reply("No more secret woof?");
-                    replied = true;
-                }
+                } else return false;
                 break;
             case "meow":
                 if (reply.includes("meow")) {
                     message.reply("meow... :(");
-                    replied = true;
                 } else if (reply.includes("woof")) {
                     message.reply("woof!!! :)");
-                    replied = true;
-                }
+                } else return false;
                 break;
             case "normal":
                 if (reply.includes("woof")) {
                     message.reply("double woof!");
-                    replied = true;
-                }
+                } else return false;
                 break;
             case "rare":
                 if (reply.includes("rare woof")) {
                     message.reply("double rare woof!");
-                    replied = true;
                 } else if (reply.includes("woof")) {
                     message.reply("woof woof!");
-                    replied = true;
-                }
+                } else return false;
                 break;
             case "legendary":
                 if (reply.includes("legendary woof")) {
                     message.reply("!! Double Legendary Woof !!");
-                    replied = true;
                 } else if (reply.includes("woof")) {
                     message.reply("woof woof!");
-                    replied = true;
-                }
+                } else return false;
                 break;
             case "mythic":
                 if (reply.includes("mythical woof")) {
                     message.reply("!!!!! DOUBLE MYTHICAL WOOF !!!!!");
-                    replied = true;
                 } else if (reply.includes("woof")) {
                     message.reply("woof woof!");
-                    replied = true;
-                }
+                } else return false;
                 break;
             default:
-                break;
+                return false;
         }
-    } catch (error) {
-        console.error(`Network error: Could not send woof message to ${message.author.username}:`, error.message);
-        return;
-    }
 
-    if (replied) {
         userProfile.latestWoofId = "";
         userProfile.latestWoofType = "";
         await userProfile.save();
-    }
 
-    return replied;
+        return true;
+    } catch (error) {
+        console.error(`Network error: Could not send woof message to ${message.author.username}:`, error.message);
+        return false;
+    }
 }
 
 async function woofMessage(message, userProfile) {
