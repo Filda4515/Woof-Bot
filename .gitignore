@@ -1,6 +1,7 @@
 .archive
 .vscode
 commands/command.js
+functions/experimental.js
 images
 node_modules
 .env
