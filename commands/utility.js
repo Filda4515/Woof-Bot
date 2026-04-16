@@ -39,8 +39,17 @@ module.exports = {
                 const subcommandFile = require(subcommandPath);
                 await subcommandFile.execute(interaction);
             } catch (error) {
-                console.error(`Error executing subcommand ${subcommand}:`, error);
-                await interaction.editReply("There was an internal error executing this subcommand.");
+                console.error(`Error in /utility ${subcommand}:`, error);
+
+                let failMsg = "An unexpected internal error occurred while running the command.";
+
+                if (error.name === "GatewayRateLimitError") {
+                    let waitTime = error.data?.retry_after ? Math.ceil(error.data.retry_after) : 60;
+
+                    failMsg = `Rate-limited by Discord. Please try again in **${waitTime} seconds**.`;
+                }
+
+                await interaction.editReply(failMsg);
             }
         } else {
             await interaction.editReply(`The subcommand \`${subcommand}\` is not implemented yet!`);

@@ -1,5 +1,5 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
-const { fetchWynncraft } = require("../../functions/wynnApi.js");
+const { fetchWynncraft } = require("../../functions/apiCalls.js");
 const config = require("../../config.json");
 const LinkedUser = require("../../schemas/LinkedUser.js");
 
@@ -151,100 +151,95 @@ async function syncDatabase(dbUpdates, dbDeletes) {
 
 module.exports = {
     async execute(interaction) {
+        const targetGuild = await interaction.client.guilds.fetch(config.smolGuildId);
+        if (!targetGuild) {
+            return interaction.editReply("Could not find Discord server.");
+        }
+
+        const guildPrefix = "Sort";
+
+        const result = await fetchWynncraft(`/guild/prefix/${guildPrefix}?identifier=uuid`);
+        if (!result.success) {
+            return await interaction.editReply(result.error);
+        }
+
+        const playerRankByUuid = parseGuildMembers(result.data);
+        const dbUserMap = await fetchDatabaseUsers();
+        const members = await targetGuild.members.fetch();
+
+        const analysis = analyzeDiscrepancies(members, playerRankByUuid, dbUserMap);
+
+        await syncDatabase(analysis.dbUpdates, analysis.dbDeletes);
+
+        const embed = new EmbedBuilder()
+            .setTitle(`Role sync check: ${guildPrefix}`)
+            .setColor(analysis.discrepancies.length === 0 ? config.colors.success : config.colors.error)
+            .setTimestamp();
+
+        if (analysis.discrepancies.length === 0) {
+            embed.setDescription(`✅ All Discord roles are synced with the Wynncraft API.`);
+            return await interaction.editReply({ embeds: [embed] });
+        }
+
+        let description = `Found **${analysis.discrepancies.length}** role mismatches:\n\n`;
+        let itemsShown = 0;
+
+        for (const mismatch of analysis.discrepancies) {
+            if (description.length + mismatch.length + 75 > 4096) {
+                break;
+            }
+            description += mismatch + "\n";
+            itemsShown++;
+        }
+
+        if (analysis.discrepancies.length > itemsShown) {
+            description += `*...and ${analysis.discrepancies.length - itemsShown} more.*`;
+        }
+
+        embed.setDescription(description);
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId("sync_roles").setLabel("Sync roles now").setStyle(ButtonStyle.Primary).setEmoji("🛠️"),
+        );
+
+        const botMessage = await interaction.editReply({ embeds: [embed], components: [row] });
+
         try {
-            const targetGuild = await interaction.client.guilds.fetch(config.smolGuildId);
-            if (!targetGuild) {
-                return interaction.editReply("Could not find Discord server.");
-            }
+            const confirmation = await botMessage.awaitMessageComponent({
+                filter: (i) => i.user.id === interaction.user.id,
+                time: 300_000,
+            });
 
-            const guildPrefix = "Sort";
+            if (confirmation.customId === "sync_roles") {
+                await confirmation.deferUpdate();
 
-            const result = await fetchWynncraft(`/guild/prefix/${guildPrefix}?identifier=uuid`);
-            if (!result.success) {
-                return await interaction.editReply(result.error);
-            }
+                let successCount = 0;
+                let failCount = 0;
 
-            const playerRankByUuid = parseGuildMembers(result.data);
-            const dbUserMap = await fetchDatabaseUsers();
-            const members = await targetGuild.members.fetch();
-
-            const analysis = analyzeDiscrepancies(members, playerRankByUuid, dbUserMap);
-
-            await syncDatabase(analysis.dbUpdates, analysis.dbDeletes);
-
-            const embed = new EmbedBuilder()
-                .setTitle(`Role sync check: ${guildPrefix}`)
-                .setColor(analysis.discrepancies.length === 0 ? config.colors.success : config.colors.error)
-                .setTimestamp();
-
-            if (analysis.discrepancies.length === 0) {
-                embed.setDescription(`✅ All Discord roles are synced with the Wynncraft API.`);
-                return await interaction.editReply({ embeds: [embed] });
-            }
-
-            let description = `Found **${analysis.discrepancies.length}** role mismatches:\n\n`;
-            let itemsShown = 0;
-
-            for (const mismatch of analysis.discrepancies) {
-                if (description.length + mismatch.length + 75 > 4096) {
-                    break;
-                }
-                description += mismatch + "\n";
-                itemsShown++;
-            }
-
-            if (analysis.discrepancies.length > itemsShown) {
-                description += `*...and ${analysis.discrepancies.length - itemsShown} more.*`;
-            }
-
-            embed.setDescription(description);
-
-            const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId("sync_roles").setLabel("Sync roles now").setStyle(ButtonStyle.Primary).setEmoji("🛠️"),
-            );
-
-            const botMessage = await interaction.editReply({ embeds: [embed], components: [row] });
-
-            try {
-                const confirmation = await botMessage.awaitMessageComponent({
-                    filter: (i) => i.user.id === interaction.user.id,
-                    time: 300_000,
-                });
-
-                if (confirmation.customId === "sync_roles") {
-                    await confirmation.deferUpdate();
-
-                    let successCount = 0;
-                    let failCount = 0;
-
-                    for (const action of analysis.actionsToTake) {
-                        try {
-                            if (action.rolesToRemove.length > 0) {
-                                await action.member.roles.remove(action.rolesToRemove);
-                            }
-                            if (action.rolesToAdd.length > 0) {
-                                await action.member.roles.add(action.rolesToAdd);
-                            }
-                            successCount++;
-                        } catch (error) {
-                            console.error(`Failed to sync ${action.member.user.username}:`, error);
-                            failCount++;
+                for (const action of analysis.actionsToTake) {
+                    try {
+                        if (action.rolesToRemove.length > 0) {
+                            await action.member.roles.remove(action.rolesToRemove);
                         }
+                        if (action.rolesToAdd.length > 0) {
+                            await action.member.roles.add(action.rolesToAdd);
+                        }
+                        successCount++;
+                    } catch (error) {
+                        console.error(`Failed to sync ${action.member.user.username}:`, error);
+                        failCount++;
                     }
-
-                    embed.setColor(config.colors.success);
-                    embed.setDescription(
-                        `✅ **Sync Complete!**\nSuccessfully updated **${successCount}** users.\nFailed to update: **${failCount}** users.`,
-                    );
-
-                    await interaction.editReply({ embeds: [embed], components: [] });
                 }
-            } catch (e) {
-                await interaction.editReply({ components: [] });
+
+                embed.setColor(config.colors.success);
+                embed.setDescription(
+                    `✅ **Sync Complete!**\nSuccessfully updated **${successCount}** users.\nFailed to update: **${failCount}** users.`,
+                );
+
+                await interaction.editReply({ embeds: [embed], components: [] });
             }
-        } catch (error) {
-            console.error("Error in /utility checkroles:", error);
-            await interaction.editReply("An unexpected internal error occurred while running the command.");
+        } catch (e) {
+            await interaction.editReply({ components: [] });
         }
     },
 };
